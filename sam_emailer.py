@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Poll MULTIPLE SAM.gov saved-searches → one CSV per search → one e-mail per CSV
-via Gmail SMTP (App-Password).  No external provider, no secrets for searches.
+Daily ad-hoc SAM.gov query:
+  (voice OR voip OR cisco OR webex OR ccum OR data)  AND  response due ≤ 90 days
+→ CSV → Gmail (App-Password)  –  zero external providers.
 """
 import os
 import csv
@@ -18,24 +19,28 @@ from email import encoders
 # ------------------------------------------------------------------
 # 1) CONFIG – only secrets are Gmail credentials
 # ------------------------------------------------------------------
-SAM_KEY    = os.getenv("SAM_API_KEY")           # still a secret
-GMAIL_USER = os.getenv("GMAIL_USER")
-GMAIL_PASS = os.getenv("GMAIL_APP_PASS")
-TO_EMAIL   = os.getenv("TO_EMAIL")              # can be comma-separated
-
-# 2) HARD-CODE YOUR SAVED-SEARCH IDs HERE ----------------------------
-SEARCH_IDS = [124733, 125225]   # <-- add / remove / reorder
+SAM_KEY   = os.getenv("SAM_API_KEY")          # sam.gov API key
+GMAIL_USER= os.getenv("GMAIL_USER")           # you@gmail.com
+GMAIL_PASS= os.getenv("GMAIL_APP_PASS")       # 16-char app password
+TO_EMAIL  = os.getenv("TO_EMAIL")             # comma-separated
 # ------------------------------------------------------------------
 
 SAM_BASE = "https://api.sam.gov/prod/opportunities/v2/search"
 
-def fetch_opps(search_id: int):
+def fetch_opps():
+    """Build the same ad-hoc query you had in the browser."""
+    tomorrow   = dt.date.today()
+    three_mo   = tomorrow + dt.timedelta(days=90)
+
     params = dict(
         api_key=SAM_KEY,
-        savedSearchId=search_id,
-        postedFrom=(dt.date.today() - dt.timedelta(days=7)).isoformat(),
-        postedTo=dt.date.today().isoformat(),
-        limit=1000
+        q="(voice OR voip OR cisco OR webex OR ccum OR data)",  # keywords
+        postedFrom=tomorrow.isoformat(),
+        postedTo=three_mo.isoformat(),
+        responseDeadLineFrom=tomorrow.isoformat(),
+        responseDeadLineTo=three_mo.isoformat(),
+        limit=1000,
+        sort="-modifiedDate"
     )
     r = requests.get(SAM_BASE, params=params, timeout=60)
     r.raise_for_status()
@@ -43,7 +48,7 @@ def fetch_opps(search_id: int):
 
 def build_csv(opps):
     if not opps:
-        opps = [{"NoticeId": "none", "Title": "No new records"}]
+        opps = [{"NoticeId": "none", "Title": "No matching opportunities"}]
     fieldnames = ["NoticeId", "Title", "Department", "SubTier", "Type",
                   "PostedDate", "ResponseDeadLine", "uiLink"]
     buf = io.StringIO()
@@ -53,13 +58,13 @@ def build_csv(opps):
         writer.writerow({k: o.get(k, "") for k in fieldnames})
     return buf.getvalue()
 
-def send_mail(csv_string: str, filename: str, subject: str):
+def send_mail(csv_string: str, filename: str):
     msg = MIMEMultipart()
-    msg["Subject"] = subject
+    msg["Subject"] = f"SAM daily voice/VoIP/Cisco filter {dt.date.today():%Y-%m-%d}"
     msg["From"] = GMAIL_USER
-    msg["To"] = TO_EMAIL
+    msg["To"]   = TO_EMAIL
 
-    body = f"CSV attached for saved-search run {dt.date.today()}."
+    body = "CSV attached for today’s keyword filter (voice / voip / cisco / webex / ccum / data)."
     msg.attach(MIMEText(body, "plain"))
 
     part = MIMEBase("application", "octet-stream")
@@ -72,16 +77,13 @@ def send_mail(csv_string: str, filename: str, subject: str):
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
         server.login(GMAIL_USER, GMAIL_PASS)
         server.send_message(msg)
-    print(f"✓  Mail sent for search {subject}")
+    print("✓  Daily ad-hoc CSV e-mailed via Gmail")
 
 def main():
-    for search_id in SEARCH_IDS:
-        print(f"---- processing search {search_id} ----")
-        opps      = fetch_opps(search_id)
-        csv_data  = build_csv(opps)
-        file_name = f"sam_search_{search_id}_{dt.date.today():%Y%m%d}.csv"
-        subject   = f"SAM opportunities search-{search_id} {dt.date.today():%Y-%m-%d}"
-        send_mail(csv_data, file_name, subject)
+    opps     = fetch_opps()
+    csv_data = build_csv(opps)
+    file_name= f"sam_voice_filter_{dt.date.today():%Y%m%d}.csv"
+    send_mail(csv_data, file_name)
 
 if __name__ == "__main__":
     main()

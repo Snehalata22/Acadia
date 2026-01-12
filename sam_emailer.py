@@ -9,6 +9,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
+import sendgrid
+from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileType, Disposition
 
 # --- CONFIG ---
 SAM_KEY    = os.getenv("SAM_API_KEY")
@@ -67,7 +69,28 @@ def build_csv(opps):
         writer.writerow({k: o.get(k, "") for k in fieldnames})
     return buf.getvalue()
 
-def send_mail(csv_string: str, filename: str):
+def send_mail_sendgrid(csv_string: str, filename: str):
+    """Send email via SendGrid (works after March 2025)"""
+    sg = sendgrid.SendGridAPIClient(api_key=os.getenv("SENDGRID_API_KEY"))
+    
+    mail = Mail(
+        from_email=os.getenv("FROM_EMAIL"),
+        to_emails=TO_EMAIL,
+        subject=f"SAM daily filter {dt.date.today():%Y-%m-%d}",
+        plain_text_content="CSV attached"
+    )
+    
+    attachment = Attachment()
+    attachment.file_content = FileContent(csv_string.encode())
+    attachment.file_name = FileName(filename)
+    attachment.file_type = FileType("text/csv")
+    attachment.disposition = Disposition("attachment")
+    mail.attachment = attachment
+    
+    response = sg.send(mail)
+    print(f"✓ Email sent via SendGrid: {response.status_code}")
+
+def send_mail_gmail(csv_string: str, filename: str):
     msg = MIMEMultipart()
     msg["Subject"] = f"SAM daily voice/VoIP/Cisco filter {dt.date.today():%Y-%m-%d}"
     msg["From"] = GMAIL_USER

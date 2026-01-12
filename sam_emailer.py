@@ -16,26 +16,28 @@ GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_APP_PASS")
 TO_EMAIL   = os.getenv("TO_EMAIL")
 
-SAM_BASE = "https://api.sam.gov/prod/opportunities/v2/search"
+# FIX 1: Correct endpoint (no /prod path)
+SAM_BASE = "https://api.sam.gov/opportunities/v2/search"
 
 def fetch_opps():
-    """Fetch opportunities with CORRECT date format"""
+    """Fetch opportunities using correct API parameters"""
     tomorrow = dt.date.today()
     three_mo = tomorrow + dt.timedelta(days=90)
     
-    # FIX: Use MM/DD/YYYY format for SAM.gov
+    # FIX 2: Proper MM/dd/yyyy format
     def fmt(d):
         return d.strftime("%m/%d/%Y")
     
+    # FIX 3: Use correct parameter names
     params = {
         "api_key": SAM_KEY,
-        "q": "(voice OR voip OR cisco OR webex OR ccum OR data)",
-        "postedFrom": fmt(tomorrow),
-        "postedTo": fmt(three_mo),
-        "responseDeadLineFrom": fmt(tomorrow),
-        "responseDeadLineTo": fmt(three_mo),
+        "postedFrom": fmt(tomorrow),  # Required with limit
+        "postedTo": fmt(three_mo),    # Required with limit
+        "rdlfrom": fmt(tomorrow),     # Correct param name
+        "rdlto": fmt(three_mo),       # Correct param name
+        "title": "(voice OR voip OR cisco OR webex OR ccum OR data)",  # FIX 4: Use title, not q
         "limit": 1000,
-        "sort": "-modifiedDate"
+        "offset": 0
     }
     
     print(f"Requesting: {requests.Request('GET', SAM_BASE, params=params).url}")
@@ -43,17 +45,20 @@ def fetch_opps():
     print(f"Status: {r.status_code}")
     
     if r.status_code != 200:
-        print(f"Error: {r.text}")
+        print(f"Error: {r.text[:500]}")
         r.raise_for_status()
     
-    return r.json().get("opportunities", [])
+    data = r.json()
+    # FIX 5: Correct response key
+    return data.get("opportunitiesData", [])
 
 def build_csv(opps):
     if not opps:
-        opps = [{"NoticeId": "none", "Title": "No matching opportunities"}]
+        opps = [{"noticeId": "none", "title": "No matching opportunities"}]
     
-    fieldnames = ["NoticeId", "Title", "Department", "SubTier", "Type",
-                  "PostedDate", "ResponseDeadLine", "uiLink"]
+    # FIX 6: Use correct field names from documentation
+    fieldnames = ["noticeId", "title", "department", "subTier", "type",
+                  "postedDate", "reponseDeadLine", "uiLink"]  # Note: reponseDeadLine is misspelled in API
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=fieldnames)
     writer.writeheader()
@@ -62,7 +67,6 @@ def build_csv(opps):
     return buf.getvalue()
 
 def send_mail(csv_string: str, filename: str):
-    """Send email via Gmail"""
     msg = MIMEMultipart()
     msg["Subject"] = f"SAM daily voice/VoIP/Cisco filter {dt.date.today():%Y-%m-%d}"
     msg["From"] = GMAIL_USER
@@ -86,13 +90,8 @@ def send_mail(csv_string: str, filename: str):
 def main():
     print("=== Starting SAM.gov scraper ===")
     
-    # Check environment
     if not all([SAM_KEY, GMAIL_USER, GMAIL_PASS, TO_EMAIL]):
         print("❌ Missing environment variables!")
-        print(f"SAM_API_KEY: {'set' if SAM_KEY else 'MISSING'}")
-        print(f"GMAIL_USER: {'set' if GMAIL_USER else 'MISSING'}")
-        print(f"GMAIL_APP_PASS: {'set' if GMAIL_PASS else 'MISSING'}")
-        print(f"TO_EMAIL: {'set' if TO_EMAIL else 'MISSING'}")
         return 1
     
     print("Step 1: Fetching opportunities...")

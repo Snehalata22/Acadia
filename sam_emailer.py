@@ -3,22 +3,16 @@ import csv
 import io
 import datetime as dt
 import requests
-import smtplib
-import ssl
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
 import sendgrid
 from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileType, Disposition
 
 # --- CONFIG ---
-SAM_KEY    = os.getenv("SAM_API_KEY")
-GMAIL_USER = os.getenv("GMAIL_USER")
-GMAIL_PASS = os.getenv("GMAIL_APP_PASS")
-TO_EMAIL   = os.getenv("TO_EMAIL")
+SAM_KEY      = os.getenv("SAM_API_KEY")
+SENDGRID_KEY = os.getenv("SENDGRID_API_KEY")
+FROM_EMAIL   = os.getenv("FROM_EMAIL")
+TO_EMAIL     = os.getenv("TO_EMAIL")
 
-# FIX: Correct endpoint (no /prod path)
+# Correct endpoint (no /prod path, no trailing space)
 SAM_BASE = "https://api.sam.gov/opportunities/v2/search"
 
 def fetch_opps():
@@ -26,23 +20,22 @@ def fetch_opps():
     tomorrow = dt.date.today()
     three_mo = tomorrow + dt.timedelta(days=90)
     
-    # FIX: Proper MM/dd/yyyy format
+    # Proper MM/dd/yyyy format
     def fmt(d):
         return d.strftime("%m/%d/%Y")
     
-    # FIX: Use correct parameter names from documentation
+    # Use correct parameter names from documentation
     params = {
         "api_key": SAM_KEY,
         "postedFrom": fmt(tomorrow),    # Required with limit
         "postedTo": fmt(three_mo),      # Required with limit
-        "rdlfrom": fmt(tomorrow),       # Correct param name
-        "rdlto": fmt(three_mo),         # Correct param name
+        "rdlfrom": fmt(tomorrow),       # Correct param name (not responseDeadLineFrom)
+        "rdlto": fmt(three_mo),         # Correct param name (not responseDeadLineTo)
         "title": "(voice OR voip OR cisco OR webex OR ccum OR data)",  # Use title, not q
         "limit": 1000,
         "offset": 0
     }
     
-    # Debug: show what we're actually sending
     print(f"DEBUG: Requesting: {requests.Request('GET', SAM_BASE, params=params).url}")
     
     r = requests.get(SAM_BASE, params=params, timeout=60)
@@ -53,7 +46,7 @@ def fetch_opps():
         r.raise_for_status()
     
     data = r.json()
-    # FIX: Correct response key from documentation
+    # Correct response key from documentation
     return data.get("opportunitiesData", [])
 
 def build_csv(opps):
@@ -69,15 +62,15 @@ def build_csv(opps):
         writer.writerow({k: o.get(k, "") for k in fieldnames})
     return buf.getvalue()
 
-def send_mail_sendgrid(csv_string: str, filename: str):
-    """Send email via SendGrid (works after March 2025)"""
-    sg = sendgrid.SendGridAPIClient(api_key=os.getenv("SENDGRID_API_KEY"))
+def send_mail(csv_string: str, filename: str):
+    """Send email via SendGrid"""
+    sg = sendgrid.SendGridAPIClient(api_key=SENDGRID_KEY)
     
     mail = Mail(
-        from_email=os.getenv("FROM_EMAIL"),
+        from_email=FROM_EMAIL,
         to_emails=TO_EMAIL,
         subject=f"SAM daily filter {dt.date.today():%Y-%m-%d}",
-        plain_text_content="CSV attached"
+        plain_text_content="CSV attached for today's keyword filter (voice / voip / cisco / webex / ccum / data)."
     )
     
     attachment = Attachment()
@@ -90,37 +83,16 @@ def send_mail_sendgrid(csv_string: str, filename: str):
     response = sg.send(mail)
     print(f"✓ Email sent via SendGrid: {response.status_code}")
 
-def send_mail_gmail(csv_string: str, filename: str):
-    msg = MIMEMultipart()
-    msg["Subject"] = f"SAM daily voice/VoIP/Cisco filter {dt.date.today():%Y-%m-%d}"
-    msg["From"] = GMAIL_USER
-    msg["To"] = TO_EMAIL
-
-    body = "CSV attached for today's keyword filter (voice / voip / cisco / webex / ccum / data)."
-    msg.attach(MIMEText(body, "plain"))
-
-    part = MIMEBase("application", "octet-stream")
-    part.set_payload(csv_string.encode())
-    encoders.encode_base64(part)
-    part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
-    msg.attach(part)
-
-    context = ssl.create_default_context()
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-        server.login(GMAIL_USER, GMAIL_PASS)
-        server.send_message(msg)
-    print("✓ Email sent successfully")
-
 def main():
-    print("=== Starting SAM.gov scraper ===")
+    print("=== Starting SAM.gov scraper (SendGrid Version) ===")
     
-    # Check environment
-    required = [SAM_KEY, GMAIL_USER, GMAIL_PASS, TO_EMAIL]
+    # Check environment for SendGrid
+    required = [SAM_KEY, SENDGRID_KEY, FROM_EMAIL, TO_EMAIL]
     if not all(required):
         print("❌ Missing environment variables!")
         print(f"SAM_API_KEY: {'✓' if SAM_KEY else 'MISSING'}")
-        print(f"GMAIL_USER: {'✓' if GMAIL_USER else 'MISSING'}")
-        print(f"GMAIL_APP_PASS: {'✓' if GMAIL_PASS else 'MISSING'}")
+        print(f"SENDGRID_API_KEY: {'✓' if SENDGRID_KEY else 'MISSING'}")
+        print(f"FROM_EMAIL: {'✓' if FROM_EMAIL else 'MISSING'}")
         print(f"TO_EMAIL: {'✓' if TO_EMAIL else 'MISSING'}")
         return 1
     
@@ -131,7 +103,7 @@ def main():
     print("Step 2: Building CSV...")
     csv_data = build_csv(opps)
     
-    print("Step 3: Sending email...")
+    print("Step 3: Sending email via SendGrid...")
     file_name = f"sam_voice_filter_{dt.date.today():%Y%m%d}.csv"
     send_mail(csv_data, file_name)
     

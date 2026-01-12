@@ -16,49 +16,50 @@ GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_APP_PASS")
 TO_EMAIL   = os.getenv("TO_EMAIL")
 
-# FIX 1: Correct endpoint (no /prod path)
+# FIX: Correct endpoint (no /prod path)
 SAM_BASE = "https://api.sam.gov/opportunities/v2/search"
 
 def fetch_opps():
-    """Fetch opportunities using correct API parameters"""
+    """Fetch opportunities using OFFICIAL API parameters"""
     tomorrow = dt.date.today()
     three_mo = tomorrow + dt.timedelta(days=90)
     
-    # FIX 2: Proper MM/dd/yyyy format
+    # FIX: Proper MM/dd/yyyy format
     def fmt(d):
         return d.strftime("%m/%d/%Y")
     
-    # FIX 3: Use correct parameter names
+    # FIX: Use correct parameter names from documentation
     params = {
         "api_key": SAM_KEY,
-        "postedFrom": fmt(tomorrow),  # Required with limit
-        "postedTo": fmt(three_mo),    # Required with limit
-        "rdlfrom": fmt(tomorrow),     # Correct param name
-        "rdlto": fmt(three_mo),       # Correct param name
-        "title": "(voice OR voip OR cisco OR webex OR ccum OR data)",  # FIX 4: Use title, not q
+        "postedFrom": fmt(tomorrow),    # Required with limit
+        "postedTo": fmt(three_mo),      # Required with limit
+        "rdlfrom": fmt(tomorrow),       # Correct param name
+        "rdlto": fmt(three_mo),         # Correct param name
+        "title": "(voice OR voip OR cisco OR webex OR ccum OR data)",  # Use title, not q
         "limit": 1000,
         "offset": 0
     }
     
-    print(f"Requesting: {requests.Request('GET', SAM_BASE, params=params).url}")
+    # Debug: show what we're actually sending
+    print(f"DEBUG: Requesting: {requests.Request('GET', SAM_BASE, params=params).url}")
+    
     r = requests.get(SAM_BASE, params=params, timeout=60)
-    print(f"Status: {r.status_code}")
+    print(f"DEBUG: Response status: {r.status_code}")
     
     if r.status_code != 200:
-        print(f"Error: {r.text[:500]}")
+        print(f"ERROR: {r.text[:500]}")
         r.raise_for_status()
     
     data = r.json()
-    # FIX 5: Correct response key
+    # FIX: Correct response key from documentation
     return data.get("opportunitiesData", [])
 
 def build_csv(opps):
     if not opps:
         opps = [{"noticeId": "none", "title": "No matching opportunities"}]
     
-    # FIX 6: Use correct field names from documentation
     fieldnames = ["noticeId", "title", "department", "subTier", "type",
-                  "postedDate", "reponseDeadLine", "uiLink"]  # Note: reponseDeadLine is misspelled in API
+                  "postedDate", "reponseDeadLine", "uiLink"]
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=fieldnames)
     writer.writeheader()
@@ -90,8 +91,14 @@ def send_mail(csv_string: str, filename: str):
 def main():
     print("=== Starting SAM.gov scraper ===")
     
-    if not all([SAM_KEY, GMAIL_USER, GMAIL_PASS, TO_EMAIL]):
+    # Check environment
+    required = [SAM_KEY, GMAIL_USER, GMAIL_PASS, TO_EMAIL]
+    if not all(required):
         print("❌ Missing environment variables!")
+        print(f"SAM_API_KEY: {'✓' if SAM_KEY else 'MISSING'}")
+        print(f"GMAIL_USER: {'✓' if GMAIL_USER else 'MISSING'}")
+        print(f"GMAIL_APP_PASS: {'✓' if GMAIL_PASS else 'MISSING'}")
+        print(f"TO_EMAIL: {'✓' if TO_EMAIL else 'MISSING'}")
         return 1
     
     print("Step 1: Fetching opportunities...")

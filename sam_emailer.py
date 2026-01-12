@@ -27,7 +27,7 @@ TO_EMAIL  = os.getenv("TO_EMAIL")             # comma-separated
 
 SAM_BASE = "https://api.sam.gov/prod/opportunities/v2/search"
 
-def fetch_opps():
+def fetch_opps1():
     """Build the same ad-hoc query you had in the browser."""
     tomorrow   = dt.date.today()
     three_mo   = tomorrow + dt.timedelta(days=90)
@@ -45,6 +45,35 @@ def fetch_opps():
     r = requests.get(SAM_BASE, params=params, timeout=60)
     r.raise_for_status()
     return r.json().get("opportunities", [])
+
+def fetch_opps():
+    """Fetch opportunities with proper date format and error handling."""
+    tomorrow = dt.date.today()
+    three_mo = tomorrow + dt.timedelta(days=90)
+
+    def fmt(d):
+        return d.strftime("%m/%d/%Y")
+
+    params = {
+        "api_key": SAM_KEY,
+        "q": "(voice OR voip OR cisco OR webex OR ccum OR data)",
+        "postedFrom": fmt(tomorrow),
+        "postedTo": fmt(three_mo),
+        "responseDeadLineFrom": fmt(tomorrow),
+        "responseDeadLineTo": fmt(three_mo),
+        "limit": 1000,
+        "sort": "-modifiedDate"
+    }
+
+    r = requests.get(SAM_BASE, params=params, timeout=60)
+    print(f"Request URL: {r.url}")  # Debug
+    print(f"Status: {r.status_code}")
+    if r.status_code != 200:
+        print(f"Error response: {r.text}")
+    r.raise_for_status()
+    
+    data = r.json()
+    return data.get("opportunities", [])
 
 def build_csv(opps):
     if not opps:

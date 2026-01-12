@@ -3,6 +3,7 @@ import csv
 import io
 import datetime as dt
 import requests
+import base64  # ADD THIS
 import sendgrid
 from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileType, Disposition
 
@@ -12,7 +13,6 @@ SENDGRID_KEY = os.getenv("SENDGRID_API_KEY")
 FROM_EMAIL   = os.getenv("FROM_EMAIL")
 TO_EMAIL     = os.getenv("TO_EMAIL")
 
-# Correct endpoint (no /prod path, no trailing space)
 SAM_BASE = "https://api.sam.gov/opportunities/v2/search"
 
 def fetch_opps():
@@ -20,24 +20,21 @@ def fetch_opps():
     tomorrow = dt.date.today()
     three_mo = tomorrow + dt.timedelta(days=90)
     
-    # Proper MM/dd/yyyy format
     def fmt(d):
         return d.strftime("%m/%d/%Y")
     
-    # Use correct parameter names from documentation
     params = {
         "api_key": SAM_KEY,
-        "postedFrom": fmt(tomorrow),    # Required with limit
-        "postedTo": fmt(three_mo),      # Required with limit
-        "rdlfrom": fmt(tomorrow),       # Correct param name (not responseDeadLineFrom)
-        "rdlto": fmt(three_mo),         # Correct param name (not responseDeadLineTo)
-        "title": "(voice OR voip OR cisco OR webex OR ccum OR data)",  # Use title, not q
+        "postedFrom": fmt(tomorrow),
+        "postedTo": fmt(three_mo),
+        "rdlfrom": fmt(tomorrow),
+        "rdlto": fmt(three_mo),
+        "title": "(voice OR voip OR cisco OR webex OR ccum OR data)",
         "limit": 1000,
         "offset": 0
     }
     
     print(f"DEBUG: Requesting: {requests.Request('GET', SAM_BASE, params=params).url}")
-    
     r = requests.get(SAM_BASE, params=params, timeout=60)
     print(f"DEBUG: Response status: {r.status_code}")
     
@@ -46,7 +43,6 @@ def fetch_opps():
         r.raise_for_status()
     
     data = r.json()
-    # Correct response key from documentation
     return data.get("opportunitiesData", [])
 
 def build_csv(opps):
@@ -63,7 +59,7 @@ def build_csv(opps):
     return buf.getvalue()
 
 def send_mail(csv_string: str, filename: str):
-    """Send email via SendGrid"""
+    """Send email via SendGrid with proper base64 encoding"""
     sg = sendgrid.SendGridAPIClient(api_key=SENDGRID_KEY)
     
     mail = Mail(
@@ -73,8 +69,11 @@ def send_mail(csv_string: str, filename: str):
         plain_text_content="CSV attached for today's keyword filter (voice / voip / cisco / webex / ccum / data)."
     )
     
+    # FIX: Properly base64 encode the content
+    encoded_csv = base64.b64encode(csv_string.encode()).decode()
+    
     attachment = Attachment()
-    attachment.file_content = FileContent(csv_string.encode())
+    attachment.file_content = FileContent(encoded_csv)
     attachment.file_name = FileName(filename)
     attachment.file_type = FileType("text/csv")
     attachment.disposition = Disposition("attachment")
@@ -86,7 +85,6 @@ def send_mail(csv_string: str, filename: str):
 def main():
     print("=== Starting SAM.gov scraper (SendGrid Version) ===")
     
-    # Check environment for SendGrid
     required = [SAM_KEY, SENDGRID_KEY, FROM_EMAIL, TO_EMAIL]
     if not all(required):
         print("❌ Missing environment variables!")

@@ -16,52 +16,41 @@ TO_EMAIL     = os.getenv("TO_EMAIL")
 SAM_BASE = "https://api.sam.gov/opportunities/v2/search"
 
 def fetch_opps():
-    """Fetch opportunities with debug info"""
-    # Try a smaller date range first - 30 days back to 30 days forward
-    start_date = dt.date.today() - dt.timedelta(days=30)
+    """Fetch opportunities - use multiple simple queries instead of complex OR"""
+    start_date = dt.date.today() - dt.timedelta(days=7)
     end_date = dt.date.today() + dt.timedelta(days=30)
     
     def fmt(d):
         return d.strftime("%m/%d/%Y")
     
-    # Try simpler keyword first
-    params = {
-        "api_key": SAM_KEY,
-        "postedFrom": fmt(start_date),
-        "postedTo": fmt(end_date),
-        "title": "cisco",  # Start with single keyword to test
-        "limit": 100,
-        "offset": 0
-    }
+    keywords = ["voice", "voip", "cisco", "webex", "ccum", "data"]
+    all_opps = []
     
-    print(f"DEBUG: Testing with simple query: {requests.Request('GET', SAM_BASE, params=params).url}")
-    r = requests.get(SAM_BASE, params=params, timeout=60)
-    print(f"DEBUG: Status: {r.status_code}, Found: {len(r.json().get('opportunitiesData', []))} opportunities")
+    print(f"DEBUG: Searching for keywords: {keywords}")
     
-    # If that works, try your original complex query
-    if r.status_code == 200 and len(r.json().get('opportunitiesData', [])) > 0:
-        print("✓ Simple query works!")
+    for keyword in keywords:
+        params = {
+            "api_key": SAM_KEY,
+            "postedFrom": fmt(start_date),
+            "postedTo": fmt(end_date),
+            "title": keyword,
+            "limit": 200,
+            "offset": 0
+        }
         
-        # Now try your original complex query
-        params["title"] = "(voice OR voip OR cisco OR webex OR ccum OR data OR database)"
-        params["limit"] = 1000
-        
-        print(f"DEBUG: Running full query: {requests.Request('GET', SAM_BASE, params=params).url}")
         r = requests.get(SAM_BASE, params=params, timeout=60)
-        print(f"DEBUG: Status: {r.status_code}")
         
-        if r.status_code != 200:
-            print(f"ERROR with complex query: {r.text[:500]}")
-            return []
+        if r.status_code == 200:
+            opps = r.json().get("opportunitiesData", [])
+            print(f"  - '{keyword}': {len(opps)} opportunities")
+            all_opps.extend(opps)
+        else:
+            print(f"  - ERROR for '{keyword}': {r.status_code}")
     
-    if r.status_code != 200:
-        print(f"ERROR: {r.text[:500]}")
-        r.raise_for_status()
-    
-    data = r.json()
-    opps = data.get("opportunitiesData", [])
-    print(f"✓ Found {len(opps)} opportunities")
-    return opps
+    # Remove duplicates by noticeId
+    unique_opps = {o["noticeId"]: o for o in all_opps}.values()
+    print(f"✓ Total unique opportunities: {len(unique_opps)}")
+    return list(unique_opps)
 
 def build_csv(opps):
     if not opps:
@@ -77,7 +66,7 @@ def build_csv(opps):
     return buf.getvalue()
 
 def send_mail(csv_string: str, filename: str):
-    """Send email via SendGrid with error handling"""
+    """Send email via SendGrid with detailed error handling"""
     try:
         sg = sendgrid.SendGridAPIClient(api_key=SENDGRID_KEY)
         
@@ -103,11 +92,18 @@ def send_mail(csv_string: str, filename: str):
         
     except Exception as e:
         print(f"❌ SendGrid error: {e}")
-        print("Check:")
-        print("1. SENDGRID_API_KEY is set in GitHub Secrets")
-        print("2. API key has 'Mail Send' permission")
-        print("3. FROM_EMAIL is verified in SendGrid")
-        print("4. TO_EMAIL is a valid recipient")
+        print("\n=== TROUBLESHOOTING STEPS ===")
+        print("1. Verify SENDGRID_API_KEY is set in GitHub Secrets")
+        print("2. In SendGrid dashboard:")
+        print("   - Go to Settings → API Keys")
+        print("   - Click your key → 'Edit API Key'")
+        print("   - Ensure 'Mail Send' permission is FULL ACCESS")
+        print("3. Verify FROM_EMAIL is verified in SendGrid:")
+        print("   - Settings → Sender Authentication → Single Sender Verification")
+        print("   - Your FROM_EMAIL must show 'Verified' status")
+        print("4. Verify TO_EMAIL is a valid email address")
+        print("5. For free SendGrid accounts, recipient must be on Trusted Contacts")
+        print("\nWORKAROUND: Use your verified FROM_EMAIL as TO_EMAIL for testing")
         raise
 
 def main():

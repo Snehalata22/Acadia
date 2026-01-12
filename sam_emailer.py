@@ -17,8 +17,8 @@ SAM_BASE = "https://api.sam.gov/opportunities/v2/search"
 
 def fetch_opps():
     """Fetch opportunities with debug info"""
-    # Try a smaller date range first - 7 days back to 30 days forward
-    start_date = dt.date.today() - dt.timedelta(days=7)
+    # Try a smaller date range first - 30 days back to 30 days forward
+    start_date = dt.date.today() - dt.timedelta(days=30)
     end_date = dt.date.today() + dt.timedelta(days=30)
     
     def fmt(d):

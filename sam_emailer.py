@@ -13,7 +13,7 @@ SENDGRID_KEY = os.getenv("SENDGRID_API_KEY")
 FROM_EMAIL   = os.getenv("FROM_EMAIL")
 TO_EMAIL     = os.getenv("TO_EMAIL")
 
-# ENSURE: No trailing space in URL
+# FIX: Removed trailing space
 SAM_BASE = "https://api.sam.gov/opportunities/v2/search"
 
 def fetch_opps():
@@ -78,20 +78,19 @@ def send_mail(csv_string: str, filename: str):
         print(f"FROM_EMAIL: {FROM_EMAIL}")
         # Parse comma-separated TO_EMAIL
         to_emails_list = [email.strip() for email in TO_EMAIL.split(',')]
-        print(f"📧 Sending to:   {', '.join(to_emails_list)}\n")
-        #print(f"TO_EMAIL:   {TO_EMAIL}")
+        print(f"TO_EMAIL:   {', '.join(to_emails_list)}")
         print(f"SENDGRID_KEY: {'*' * len(SENDGRID_KEY) if SENDGRID_KEY else 'NOT SET'}")
-        print(f"FROM_VERIFIED: {FROM_EMAIL == TO_EMAIL}")
         print("="*50 + "\n")
-  
-    sg = sendgrid.SendGridAPIClient(api_key=SENDGRID_KEY)
-    
-    mail = Mail(
-        from_email=From(FROM_EMAIL),
-        to_emails=[To(email) for email in to_emails_list],
-        subject=f"SAM daily filter {dt.date.today():%Y-%m-%d}",
-        plain_text_content="CSV attached for today's keyword filter (voice / voip / cisco / webex / ccum / data)."
-    )
+        
+        # FIX: This line must be INSIDE the try block (indented)
+        sg = sendgrid.SendGridAPIClient(api_key=SENDGRID_KEY)
+        
+        mail = Mail(
+            from_email=From(FROM_EMAIL),
+            to_emails=[To(email) for email in to_emails_list],
+            subject=f"SAM daily filter {dt.date.today():%Y-%m-%d}",
+            plain_text_content="CSV attached for today's keyword filter (voice / voip / cisco / webex / ccum / data)."
+        )
 
         # Proper base64 encoding
         encoded_csv = base64.b64encode(csv_string.encode()).decode()
@@ -112,7 +111,7 @@ def send_mail(csv_string: str, filename: str):
         if response.status_code == 202:
             print("✓ Email ACCEPTED by SendGrid (status 202)")
             print(f"  📧 FROM: {FROM_EMAIL}")
-            print(f"  📧 Sending to:   {', '.join(to_emails_list)}\n")
+            print(f"  📧 TO:   {', '.join(to_emails_list)}")
             print("  ⚠️  This means API call succeeded but doesn't guarantee delivery")
             print("  🔍 Check your spam folder!")
             print("  🔍 Check SendGrid dashboard: Activity → Email Activity")

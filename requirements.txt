@@ -1,3 +1,4 @@
 requests
 sendgrid
+python-http-client
 #sendgrid==6.11.0   # lightweight, no boto3-like bulk

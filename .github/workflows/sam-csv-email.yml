@@ -1,7 +1,7 @@
 name: SAM-CSV-Email   # shows up in the Actions tab
 on:
   schedule:                    # 06:30 UTC every business day
-    - cron: "30 6 * * 1-5"
+    - cron: "30 12 * * 1-5"
   workflow_dispatch:           # blue “Run workflow” button
 jobs:
   mail-report:
